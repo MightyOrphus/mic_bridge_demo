@@ -24,6 +24,10 @@ export class NavHttpClientService {
 
     this.logger.log(`Requesting ${serviceName} with Action ${soapAction}. Using custom auth: ${!!customAuth}`);
 
+    if (this.configService.get<string>('DEBUG') === 'true') {
+      this.logger.debug(`Outgoing XML for ${serviceName}:\n${xmlPayload}`);
+    }
+
     // Split domain\user if present
     let domain = '';
     let username = fullUser;

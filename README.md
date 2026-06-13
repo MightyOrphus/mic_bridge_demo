@@ -33,6 +33,19 @@ The application supports two levels of authentication:
 2.  `npm install`
 3.  `npm run start` (App will be available at `http://localhost:4200`)
 
+## Troubleshooting & Debugging
+
+### Addressing 401 Unauthorized
+If you encounter a `401 Unauthorized` error while the credentials appear correct:
+1.  **Domain Format**: Ensure the username is provided in the `DOMAIN\User` format. The BFF logic automatically splits this for the NTLM handshake.
+2.  **Special Characters**: If your password contains special characters, ensure they are correctly handled in the `.env` file (wrapped in quotes) or the frontend input.
+3.  **Workstation**: Some NAV configurations require a specific workstation name. Currently, this is set to empty in `NavHttpClientService`.
+
+### Enabling Debug Mode
+To see the full SOAP request and response cycle:
+- **Backend Logging**: The application uses the standard NestJS `Logger`. You can set `LOG_LEVEL=debug` in your environment (if using a supporting logger) or check the console for `NAV SOAP NTLM Error` details.
+- **Payload Inspection**: A `DEBUG=true` flag in `.env` will trigger the `NavHttpClientService` to log the raw XML payloads being sent to Dynamics NAV.
+
 ## Features
 
 - **Items**: Create and Update item records.
