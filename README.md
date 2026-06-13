@@ -43,8 +43,8 @@ If you encounter a `401 Unauthorized` error while the credentials appear correct
 
 ### Enabling Debug Mode
 To see the full SOAP request and response cycle:
-- **Backend Logging**: The application uses the standard NestJS `Logger`. You can set `LOG_LEVEL=debug` in your environment (if using a supporting logger) or check the console for `NAV SOAP NTLM Error` details.
-- **Payload Inspection**: A `DEBUG=true` flag in `.env` will trigger the `NavHttpClientService` to log the raw XML payloads being sent to Dynamics NAV.
+- **Backend Logging**: Configured in `backend/src/main.ts`. You can control visibility by setting `LOG_LEVEL` in `.env` (e.g., `LOG_LEVEL="log,error,warn,debug"`).
+- **Payload Inspection**: Set `DEBUG=true` in `.env` to trigger `NavHttpClientService` to log the raw XML payloads being sent to Dynamics NAV.
 
 ## Features
 

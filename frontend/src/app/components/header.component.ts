@@ -22,6 +22,7 @@ import { AuthStore } from '../services/auth.store';
           type="password"
           [ngModel]="authStore.password()"
           (ngModelChange)="authStore.updatePassword($event)"
+          (keyup.enter)="onLogin()"
           placeholder="Password"
           class="bg-slate-700 text-white text-sm px-3 py-2 rounded border border-slate-600 focus:outline-none focus:border-blue-500 w-40"
         />
