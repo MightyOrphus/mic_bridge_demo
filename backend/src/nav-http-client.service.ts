@@ -19,6 +19,7 @@ export class NavHttpClientService {
   ) {}
 
   async post(serviceName: string, soapAction: string, xmlPayload: string, customAuth?: { user: string; pass: string }) {
+    this.logger.debug(`[RAW AUTH FROM UI] Received User: "${customAuth?.user}" | Pass Length: ${customAuth?.pass?.length || 0}`);
     const baseUrl = this.configService.get<string>('NAV_BASE_URL');
     const url = `${baseUrl}/Page/${serviceName}`;
 
@@ -99,8 +100,10 @@ export class NavHttpClientService {
 
         if (type2msg) {
           const type3msg = ntlm.createType3Message(type2msg, username, pass, workstation, domain);
-          // ntlm-client prepends 'NTLM ' to the message, we need to extract the token if authType is Negotiate
+          // ntlm-client prepends 'NTLM ' to the message, we need to extract the token
           const token3 = type3msg.startsWith('NTLM ') ? type3msg.substring(5) : type3msg;
+
+          this.logger.debug(`Step 3 Authorization: ${authType} ${token3.substring(0, 20)}...`);
 
           response = await axios.post(url, xmlPayload, {
             ...axiosConfig,
@@ -109,6 +112,8 @@ export class NavHttpClientService {
               'Authorization': `${authType} ${token3}`,
             },
           });
+
+          this.logger.debug(`Step 3 Response Status: ${response.status}`);
         }
       }
 
