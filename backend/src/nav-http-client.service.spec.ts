@@ -84,7 +84,7 @@ describe('NavHttpClientService', () => {
         headers: expect.objectContaining({
           'Content-Type': 'text/xml; charset=utf-8',
           'SOAPAction': soapAction,
-          'Authorization': expect.stringMatching(/^Negotiate TlRMTVNTUAAB/),
+          'Authorization': expect.stringMatching(/^NTLM TlRMTVNTUAAB/),
         }),
       })
     );
@@ -97,7 +97,7 @@ describe('NavHttpClientService', () => {
         headers: expect.objectContaining({
           'Content-Type': 'text/xml; charset=utf-8',
           'SOAPAction': soapAction,
-          'Authorization': expect.stringMatching(/^Negotiate TlRMTVNTUAAD/),
+          'Authorization': expect.stringMatching(/^NTLM TlRMTVNTUAAD/),
         }),
       })
     );

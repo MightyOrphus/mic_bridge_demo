@@ -11,8 +11,8 @@ import * as os from 'os';
 export class NavHttpClientService {
   private readonly logger = new Logger(NavHttpClientService.name);
 
-  private readonly httpAgent = new http.Agent({ keepAlive: true });
-  private readonly httpsAgent = new https.Agent({ keepAlive: true, rejectUnauthorized: false });
+  private readonly httpAgent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+  private readonly httpsAgent = new https.Agent({ keepAlive: true, rejectUnauthorized: false, maxSockets: 1 });
 
   constructor(
     private readonly configService: ConfigService,
@@ -20,6 +20,7 @@ export class NavHttpClientService {
 
   async post(serviceName: string, soapAction: string, xmlPayload: string, customAuth?: { user: string; pass: string }) {
     this.logger.debug(`[RAW AUTH FROM UI] Received User: "${customAuth?.user}" | Pass Length: ${customAuth?.pass?.length || 0}`);
+
     const baseUrl = this.configService.get<string>('NAV_BASE_URL');
     const url = `${baseUrl}/Page/${serviceName}`;
 
@@ -30,9 +31,18 @@ export class NavHttpClientService {
     const { user: fullUser, pass } = customAuth;
     let domain = '';
     let username = fullUser;
-    if (fullUser.includes('\\')) {
-      [domain, username] = fullUser.split('\\');
+
+    // Defensively split both single and double backslashes
+    const slashRegex = /[\\/]+/;
+    if (slashRegex.test(fullUser)) {
+      const parts = fullUser.split(slashRegex);
+      if (parts.length >= 2) {
+        domain = parts[0].trim();
+        username = parts[1].trim();
+      }
     }
+
+    this.logger.debug(`[NTLM Target] Domain: "${domain}" | Username: "${username}"`);
 
     const workstation = os.hostname();
     const axiosConfig = {
@@ -47,63 +57,49 @@ export class NavHttpClientService {
     };
 
     try {
-      // 1. Initial request
+      // Step 1: Send anonymous request to trigger 401 challenge
       let response = await axios.post(url, xmlPayload, {
         ...axiosConfig,
         headers: { ...commonHeaders },
       });
 
       if (response.status === 401) {
-        const authHeader = response.headers['www-authenticate'] || '';
-        this.logger.debug(`Step 1 Challenge: ${authHeader}`);
+        // FORCE NTLM AUTHENTICATION FLOW LIKE CURL
+        const authType = 'NTLM';
 
-        const challenges = Array.isArray(authHeader) ? authHeader : authHeader.split(',').map((s: string) => s.trim());
-        const negotiate = challenges.find((s: string) => s.toLowerCase().startsWith('negotiate'));
-        const ntlmChallenge = challenges.find((s: string) => s.toLowerCase().startsWith('ntlm'));
+        // Step 2: Send NTLM Type 1 Message
+        const type1msg = ntlm.createType1Message(workstation, domain);
+        const token1 = type1msg.startsWith('NTLM ') ? type1msg.substring(5) : type1msg;
 
-        if (!negotiate && !ntlmChallenge) {
-          throw new UnauthorizedException('Server does not support NTLM or Negotiate');
-        }
+        response = await axios.post(url, xmlPayload, {
+          ...axiosConfig,
+          headers: {
+            ...commonHeaders,
+            'Authorization': `${authType} ${token1}`,
+          },
+        });
 
-        const authType = negotiate ? 'Negotiate' : 'NTLM';
-        const activeChallenge = negotiate || ntlmChallenge;
-        const challengeParts = activeChallenge!.split(' ');
-
-        let type2msg;
-        if (challengeParts.length > 1) {
-          // Server returned Type 2 challenge immediately!
-          this.logger.debug('Server returned Type 2 challenge in Step 1. Skipping Type 1 message.');
-          type2msg = ntlm.decodeType2Message(challengeParts[1]);
+        if (response.status !== 401) {
+          this.logger.error(`Expected 401 in Step 2, got ${response.status}`);
         } else {
-          // Standard flow: Send Type 1 Message
-          const type1msg = ntlm.createType1Message(workstation, domain);
-          // ntlm-client prepends 'NTLM ' to the message, we need to extract the token if authType is Negotiate
-          const token1 = type1msg.startsWith('NTLM ') ? type1msg.substring(5) : type1msg;
+          // Step 3: Parse Type 2 Challenge and Send Type 3 Message
+          const type2header = response.headers['www-authenticate'] || '';
+          this.logger.debug(`Step 2 Challenge Header: ${type2header}`);
 
-          response = await axios.post(url, xmlPayload, {
-            ...axiosConfig,
-            headers: {
-              ...commonHeaders,
-              'Authorization': `${authType} ${token1}`,
-            },
-          });
+          // Extract the actual NTLM/Negotiate token part safely
+          const challengeParts = (Array.isArray(type2header) ? type2header : type2header.split(',')).map((s: string) => s.trim());
+          const activeChallenge = challengeParts.find((s: string) => s.startsWith('NTLM') || s.startsWith('Negotiate')) || '';
+          const base64Challenge = activeChallenge.includes(' ') ? activeChallenge.split(' ')[1] : activeChallenge;
 
-          if (response.status !== 401) {
-             this.logger.error(`Expected 401 in Step 2, got ${response.status}`);
-          } else {
-             const type2header = response.headers['www-authenticate'];
-             this.logger.debug(`Step 2 Challenge: ${type2header}`);
-             const base64Challenge = type2header.includes(' ') ? type2header.split(' ')[1] : type2header;
-             type2msg = ntlm.decodeType2Message(base64Challenge);
+          if (!base64Challenge) {
+            throw new UnauthorizedException('Could not extract NTLM base64 challenge from server');
           }
-        }
 
-        if (type2msg) {
+          const type2msg = ntlm.decodeType2Message(base64Challenge);
           const type3msg = ntlm.createType3Message(type2msg, username, pass, workstation, domain);
-          // ntlm-client prepends 'NTLM ' to the message, we need to extract the token
           const token3 = type3msg.startsWith('NTLM ') ? type3msg.substring(5) : type3msg;
 
-          this.logger.debug(`Step 3 Authorization: ${authType} ${token3.substring(0, 20)}...`);
+          this.logger.debug(`Step 3 Authorization: Sending forced NTLM Type 3 token`);
 
           response = await axios.post(url, xmlPayload, {
             ...axiosConfig,
