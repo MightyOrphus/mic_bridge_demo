@@ -4,6 +4,7 @@ This project is a full-stack application designed to act as a Backend-for-Fronte
 
 ## Architecture
 
+- **Recommended Environment**: Node.js **^22.0.0**
 - **Backend**: NestJS application that handles SOAP/XML mapping and NTLM authentication.
 - **Frontend**: Angular application using Standalone Components, Signals, and Tailwind CSS.
 
