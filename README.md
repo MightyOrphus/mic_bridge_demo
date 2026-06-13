@@ -10,13 +10,12 @@ This project is a full-stack application designed to act as a Backend-for-Fronte
 
 ## Authentication Logic
 
-The application supports two levels of authentication:
+The application relies entirely on user-provided credentials from the frontend:
 
-1.  **Default Credentials**: Defined in the backend `.env` file (`NAV_USER`, `NAV_PASS`). These are typically "Service Admin" or high-privileged credentials used for master data fetching (Item Categories, etc.) and as a fallback.
-2.  **User Override**: The frontend includes a header bar where users can enter their own Dynamics NAV credentials.
-    - If provided, these credentials are sent via custom HTTP headers (`x-nav-user`, `x-nav-pass`) to the BFF.
-    - The BFF prioritizes these headers for the specific request, allowing normal users to perform actions (like viewing POs) with their own permissions.
-    - When user overrides are used, server-side caching is bypassed to ensure data accuracy and security for that specific user.
+1.  **User Login**: The frontend includes a header bar where users **must** enter their Dynamics NAV credentials (`DOMAIN\User` and `Password`).
+2.  **Credential Proxying**: These credentials are sent via custom HTTP headers (`x-nav-user`, `x-nav-pass`) to the BFF for every request.
+3.  **Security**: No default credentials are stored in the backend `.env` file, ensuring that the system's access control is handled purely by the Microsoft Dynamics NAV server.
+4.  **Caching**: Server-side caching is enabled for public/stable data but is uniquely identified or bypassed as needed based on the implementation.
 
 ## Getting Started
 
