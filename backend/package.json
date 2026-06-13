@@ -10,10 +10,10 @@
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\"",
-    "start": "NODE_OPTIONS=--openssl-legacy-provider nest start",
-    "start:dev": "NODE_OPTIONS=--openssl-legacy-provider nest start --watch",
-    "start:prod": "NODE_OPTIONS=--openssl-legacy-provider node dist/main",
-    "test": "NODE_OPTIONS=--openssl-legacy-provider jest"
+    "start": "cross-env NODE_OPTIONS=--openssl-legacy-provider nest start",
+    "start:dev": "cross-env NODE_OPTIONS=--openssl-legacy-provider nest start --watch",
+    "start:prod": "cross-env NODE_OPTIONS=--openssl-legacy-provider node dist/main",
+    "test": "cross-env NODE_OPTIONS=--openssl-legacy-provider jest"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",
@@ -25,6 +25,7 @@
     "axios": "^1.7.9",
     "axios-ntlm": "^1.4.6",
     "cache-manager": "^6.4.0",
+    "cross-env": "^10.1.0",
     "ntlm-client": "^0.1.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
