@@ -14,4 +14,10 @@ export class PurchaseOrdersService {
     const response = await this.navHttpClient.post('PurchaseOrder', 'urn:microsoft-dynamics-schemas/page/purchaseorder:ReadMultiple', xml, auth);
     return response?.ReadMultiple_Result;
   }
+
+  async create(poData: any, auth?: { user: string; pass: string }) {
+    const xml = this.navSoap.createPOXml(poData);
+    const response = await this.navHttpClient.post('PurchaseOrder', 'urn:microsoft-dynamics-schemas/page/purchaseorder:Create', xml, auth);
+    return response?.Create_Result;
+  }
 }

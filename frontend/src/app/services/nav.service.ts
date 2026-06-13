@@ -47,4 +47,8 @@ export class NavService {
   updateItem(itemData: any): Observable<any> {
     return this.http.patch(`${this.apiUrl}/items`, itemData, { headers: this.getHeaders() });
   }
+
+  createPO(poData: any): Observable<any> {
+    return this.http.post(`${this.apiUrl}/purchase-orders`, poData, { headers: this.getHeaders() });
+  }
 }

@@ -106,4 +106,20 @@ export class NavSoapService {
    </soapenv:Body>
 </soapenv:Envelope>`.trim();
   }
+
+  createPOXml(poData: any): string {
+    return `
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:pur="urn:microsoft-dynamics-schemas/page/purchaseorder">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <pur:Create>
+         <pur:PurchaseOrder>
+            <pur:Buy_from_Vendor_No>${poData.Buy_from_Vendor_No || ''}</pur:Buy_from_Vendor_No>
+            <pur:Order_Date>${poData.Order_Date || ''}</pur:Order_Date>
+            <pur:Posting_Description>${poData.Description || ''}</pur:Posting_Description>
+         </pur:PurchaseOrder>
+      </pur:Create>
+   </soapenv:Body>
+</soapenv:Envelope>`.trim();
+  }
 }
