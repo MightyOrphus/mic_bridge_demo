@@ -13,7 +13,8 @@ export class NavHttpClientService {
 
   async post(serviceName: string, soapAction: string, xmlPayload: string, customAuth?: { user: string; pass: string }) {
     const baseUrl = this.configService.get<string>('NAV_BASE_URL');
-    const url = `${baseUrl}/Page/${serviceName}`;
+    // Important: encodeURI to handle spaces in company names
+    const url = encodeURI(`${baseUrl}/Page/${serviceName}`);
 
     if (!baseUrl) {
       this.logger.error('NAV_BASE_URL is not defined in environment variables!');
@@ -27,7 +28,7 @@ export class NavHttpClientService {
     const fullUser = customAuth.user;
     const pass = customAuth.pass;
 
-    this.logger.log(`Requesting ${serviceName} with Action ${soapAction}.`);
+    this.logger.log(`Requesting ${serviceName} with Action ${soapAction}. URL: ${url}`);
 
     if (this.configService.get<string>('DEBUG') === 'true') {
       this.logger.debug(`Outgoing XML for ${serviceName}:\n${xmlPayload}`);
@@ -44,7 +45,7 @@ export class NavHttpClientService {
       username,
       password: pass,
       domain,
-      workstation: '',
+      workstation: 'BFF-PROXY', // Some servers require a workstation name
     });
 
     try {
@@ -59,9 +60,17 @@ export class NavHttpClientService {
       return this.extractResponseBody(parsed);
     } catch (error) {
       const errorMsg = error.response?.data || error.message;
-      this.logger.error(`NAV SOAP NTLM Error (${serviceName}): ${errorMsg}`);
+      const statusCode = error.response?.status;
+
+      this.logger.error(`NAV SOAP NTLM Error (${serviceName}) [${statusCode}]: ${errorMsg}`);
+
+      if (statusCode === 401 && error.response?.headers?.['www-authenticate']) {
+        this.logger.debug(`Auth Challenges: ${error.response.headers['www-authenticate']}`);
+      }
+
       throw new InternalServerErrorException({
         message: `NAV Service Error: ${error.message}`,
+        status: statusCode,
         details: error.response?.data ? 'Check server logs for XML response' : undefined,
         navUrl: url
       });
