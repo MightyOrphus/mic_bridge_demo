@@ -10,10 +10,10 @@
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\"",
-    "start": "nest start",
-    "start:dev": "nest start --watch",
-    "start:prod": "node dist/main",
-    "test": "jest"
+    "start": "NODE_OPTIONS=--openssl-legacy-provider nest start",
+    "start:dev": "NODE_OPTIONS=--openssl-legacy-provider nest start --watch",
+    "start:prod": "NODE_OPTIONS=--openssl-legacy-provider node dist/main",
+    "test": "NODE_OPTIONS=--openssl-legacy-provider jest"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",
