@@ -64,6 +64,9 @@ export class NavHttpClientService {
       });
 
       if (response.status === 401) {
+        const authHeader1 = response.headers['www-authenticate'] || '';
+        this.logger.debug(`Step 1 WWW-Authenticate: ${authHeader1}`);
+
         // FORCE NTLM AUTHENTICATION FLOW LIKE CURL
         const authType = 'NTLM';
 
@@ -84,14 +87,23 @@ export class NavHttpClientService {
         } else {
           // Step 3: Parse Type 2 Challenge and Send Type 3 Message
           const type2header = response.headers['www-authenticate'] || '';
-          this.logger.debug(`Step 2 Challenge Header: ${type2header}`);
+          this.logger.debug(`Step 2 WWW-Authenticate: ${type2header}`);
 
           // Extract the actual NTLM/Negotiate token part safely
           const challengeParts = (Array.isArray(type2header) ? type2header : type2header.split(',')).map((s: string) => s.trim());
-          const activeChallenge = challengeParts.find((s: string) => s.startsWith('NTLM') || s.startsWith('Negotiate')) || '';
-          const base64Challenge = activeChallenge.includes(' ') ? activeChallenge.split(' ')[1] : activeChallenge;
+
+          // Find the challenge that actually contains a token (has a space)
+          let activeChallenge = challengeParts.find((s: string) => (s.startsWith('NTLM') || s.startsWith('Negotiate')) && s.includes(' '));
+
+          // Fallback to preferred scheme if no token found yet (some servers might not use spaces if token is empty, though unlikely for Type 2)
+          if (!activeChallenge) {
+             activeChallenge = challengeParts.find((s: string) => s.startsWith('NTLM')) || challengeParts.find((s: string) => s.startsWith('Negotiate')) || '';
+          }
+
+          const base64Challenge = activeChallenge.includes(' ') ? activeChallenge.split(' ')[1] : '';
 
           if (!base64Challenge) {
+            this.logger.error(`Failed to extract base64 challenge. Active Challenge: "${activeChallenge}"`);
             throw new UnauthorizedException('Could not extract NTLM base64 challenge from server');
           }
 
