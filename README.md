@@ -41,11 +41,12 @@ The application relies entirely on user-provided credentials from the frontend:
 
 ## Troubleshooting & Debugging
 
-### Addressing 401 Unauthorized
-If you encounter a `401 Unauthorized` error:
+### Addressing 401/400 Errors (Authentication)
+If you encounter authentication errors:
 1.  **Domain Format**: Ensure the username is `DOMAIN\User`.
-2.  **Password**: Verify special characters are handled correctly.
-3.  **Negotiate Challenge**: The BFF logs will show `Step 1 Challenge: Negotiate, NTLM` if multiple protocols are supported.
+2.  **IIS/NAV Settings**: If the server is strictly enforced to Kerberos, Node.js may fail. Ensure **NTLM** is enabled as a provider under the Windows Authentication settings in IIS and the Dynamics NAV Tier.
+3.  **Negotiate Challenge**: The BFF supports both `Negotiate` and `NTLM` headers but relies on NTLM tokens for the handshake.
+4.  **Shared Connection**: The BFF uses a persistent HTTP agent to ensure the multi-step handshake occurs over the same TCP connection.
 
 ### Enabling Debug Mode
 - **Backend Logging**: Set `LOG_LEVEL="log,error,warn,debug"` in `.env`.

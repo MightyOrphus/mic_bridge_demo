@@ -29,17 +29,18 @@ export class NavHttpClientService {
       [domain, username] = fullUser.split('\\');
     }
 
-    const axiosInstance = axios.create({
-      httpAgent: new http.Agent({ keepAlive: true }),
-      httpsAgent: new https.Agent({ keepAlive: true, rejectUnauthorized: false }),
-    });
+    // Use a shared agent to maintain connection persistence for the handshake
+    const httpAgent = new http.Agent({ keepAlive: true });
+    const httpsAgent = new https.Agent({ keepAlive: true, rejectUnauthorized: false });
 
     try {
       let response: AxiosResponse | undefined;
 
-      // 1. Initial request
+      // 1. Initial request (Empty body can help avoid 400 in some IIS setups during handshake)
       try {
-        response = await axiosInstance.post(url, xmlPayload, {
+        response = await axios.post(url, null, {
+          httpAgent,
+          httpsAgent,
           headers: {
             'Content-Type': 'text/xml; charset=utf-8',
             'SOAPAction': `"${soapAction}"`,
@@ -48,8 +49,9 @@ export class NavHttpClientService {
       } catch (err: any) {
         if (err.response?.status === 401) {
           const authHeader = err.response.headers['www-authenticate'] || '';
-          const challenges = Array.isArray(authHeader) ? authHeader : authHeader.split(',').map((s: string) => s.trim());
+          this.logger.debug(`Step 1 Challenge: ${authHeader}`);
 
+          const challenges = Array.isArray(authHeader) ? authHeader : authHeader.split(',').map((s: string) => s.trim());
           const negotiate = challenges.find((s: string) => s.toLowerCase().startsWith('negotiate'));
           const ntlmChallenge = challenges.find((s: string) => s.toLowerCase().startsWith('ntlm'));
 
@@ -60,8 +62,11 @@ export class NavHttpClientService {
           const authType = negotiate ? 'Negotiate' : 'NTLM';
           const type1msg = ntlm.createType1Message('', domain);
 
+          // 2. Send Type 1 Message (Also use empty or minimal body)
           try {
-            await axiosInstance.post(url, xmlPayload, {
+            await axios.post(url, null, {
+              httpAgent,
+              httpsAgent,
               headers: {
                 'Authorization': `${authType} ${type1msg}`,
                 'Content-Type': 'text/xml; charset=utf-8',
@@ -71,12 +76,16 @@ export class NavHttpClientService {
           } catch (err2: any) {
             if (err2.response?.status === 401) {
               const type2header = err2.response.headers['www-authenticate'];
-              // Usually returns "NTLM <base64>" or "Negotiate <base64>"
-              const base64Challenge = type2header.split(' ')[1];
+              this.logger.debug(`Step 2 Challenge: ${type2header}`);
+
+              const base64Challenge = type2header.startsWith(authType) ? type2header.split(' ')[1] : type2header;
               const type2msg = ntlm.decodeType2Message(base64Challenge);
               const type3msg = ntlm.createType3Message(type2msg, username, pass, '', domain);
 
-              response = await axiosInstance.post(url, xmlPayload, {
+              // 3. Send Type 3 Message WITH REAL PAYLOAD
+              response = await axios.post(url, xmlPayload, {
+                httpAgent,
+                httpsAgent,
                 headers: {
                   'Authorization': `${authType} ${type3msg}`,
                   'Content-Type': 'text/xml; charset=utf-8',
@@ -97,7 +106,8 @@ export class NavHttpClientService {
       const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false, ignoreAttrs: true });
       return this.extractResponseBody(parsed);
     } catch (error: any) {
-      this.logger.error(`NAV SOAP Error (${serviceName}): ${error.message}`);
+      const errorMsg = error.response?.data || error.message;
+      this.logger.error(`NAV SOAP Error (${serviceName}): ${error.message} - ${JSON.stringify(error.response?.data)}`);
       throw new InternalServerErrorException({
         message: `NAV Service Error: ${error.message}`,
         status: error.response?.status,
