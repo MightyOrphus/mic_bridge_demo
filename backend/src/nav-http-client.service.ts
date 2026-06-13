@@ -29,48 +29,39 @@ export class NavHttpClientService {
       [domain, username] = fullUser.split('\\');
     }
 
-    // Use a shared agent to maintain connection persistence for the handshake
+    // Shared agent for NTLM connection persistence
     const httpAgent = new http.Agent({ keepAlive: true });
     const httpsAgent = new https.Agent({ keepAlive: true, rejectUnauthorized: false });
 
     try {
       let response: AxiosResponse | undefined;
 
-      // 1. Initial request (Empty body can help avoid 400 in some IIS setups during handshake)
+      // Step 1: Trigger 401 and find out which auth methods are supported
       try {
-        response = await axios.post(url, null, {
-          httpAgent,
-          httpsAgent,
-          headers: {
-            'Content-Type': 'text/xml; charset=utf-8',
-            'SOAPAction': `"${soapAction}"`,
-          },
-        });
+        await axios.get(url, { httpAgent, httpsAgent });
       } catch (err: any) {
         if (err.response?.status === 401) {
           const authHeader = err.response.headers['www-authenticate'] || '';
-          this.logger.debug(`Step 1 Challenge: ${authHeader}`);
+          this.logger.debug(`Initial WWW-Authenticate: ${authHeader}`);
 
           const challenges = Array.isArray(authHeader) ? authHeader : authHeader.split(',').map((s: string) => s.trim());
-          const negotiate = challenges.find((s: string) => s.toLowerCase().startsWith('negotiate'));
+          const negotiateChallenge = challenges.find((s: string) => s.toLowerCase().startsWith('negotiate'));
           const ntlmChallenge = challenges.find((s: string) => s.toLowerCase().startsWith('ntlm'));
 
-          if (!negotiate && !ntlmChallenge) {
+          if (!negotiateChallenge && !ntlmChallenge) {
              throw new UnauthorizedException(`Server does not support NTLM or Negotiate. Challenge: ${authHeader}`);
           }
 
-          const authType = negotiate ? 'Negotiate' : 'NTLM';
+          const authType = negotiateChallenge ? 'Negotiate' : 'NTLM';
           const type1msg = ntlm.createType1Message('', domain);
 
-          // 2. Send Type 1 Message (Also use empty or minimal body)
+          // Step 2: Send Type 1 Message (GET with Type 1 header, no body/content-type)
           try {
-            await axios.post(url, null, {
+            await axios.get(url, {
               httpAgent,
               httpsAgent,
               headers: {
                 'Authorization': `${authType} ${type1msg}`,
-                'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': `"${soapAction}"`,
               },
             });
           } catch (err2: any) {
@@ -78,18 +69,19 @@ export class NavHttpClientService {
               const type2header = err2.response.headers['www-authenticate'];
               this.logger.debug(`Step 2 Challenge: ${type2header}`);
 
+              // Extract base64 from "Negotiate <base64>" or "NTLM <base64>"
               const base64Challenge = type2header.startsWith(authType) ? type2header.split(' ')[1] : type2header;
               const type2msg = ntlm.decodeType2Message(base64Challenge);
               const type3msg = ntlm.createType3Message(type2msg, username, pass, '', domain);
 
-              // 3. Send Type 3 Message WITH REAL PAYLOAD
+              // Step 3: Final Authenticated Request (POST with Payload)
               response = await axios.post(url, xmlPayload, {
                 httpAgent,
                 httpsAgent,
                 headers: {
                   'Authorization': `${authType} ${type3msg}`,
                   'Content-Type': 'text/xml; charset=utf-8',
-                  'SOAPAction': `"${soapAction}"`,
+                  'SOAPAction': soapAction, // Using value directly as in proven curl
                 },
               });
             } else {
@@ -101,13 +93,12 @@ export class NavHttpClientService {
         }
       }
 
-      if (!response) throw new Error('No response from NAV server');
+      if (!response) throw new Error('Failed to complete NTLM handshake');
 
       const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false, ignoreAttrs: true });
       return this.extractResponseBody(parsed);
     } catch (error: any) {
-      const errorMsg = error.response?.data || error.message;
-      this.logger.error(`NAV SOAP Error (${serviceName}): ${error.message} - ${JSON.stringify(error.response?.data)}`);
+      this.logger.error(`NAV SOAP Error (${serviceName}): ${error.message}`);
       throw new InternalServerErrorException({
         message: `NAV Service Error: ${error.message}`,
         status: error.response?.status,
@@ -117,8 +108,9 @@ export class NavHttpClientService {
   }
 
   private extractResponseBody(parsed: any) {
-    const envelope = parsed['SOAP-ENV:Envelope'] || parsed['soap:Envelope'] || parsed['Envelope'] || parsed['Soap:Envelope'] || parsed['soap'] || parsed['Soap:Envelope'];
-    const body = envelope?.['SOAP-ENV:Body'] || envelope?.['soap:Body'] || envelope?.['Body'] || envelope?.['Soap:Body'];
+    // Navigate through possible SOAP response structures
+    const envelope = parsed['SOAP-ENV:Envelope'] || parsed['soap:Envelope'] || parsed['Envelope'] || parsed['Soap:Envelope'] || parsed['soap'];
+    const body = envelope?.['SOAP-ENV:Body'] || envelope?.['soap:Body'] || envelope?.['Body'] || envelope?.['Soap:Body'] || parsed['Soap:Envelope']?.['Soap:Body'];
     return body || parsed;
   }
 }

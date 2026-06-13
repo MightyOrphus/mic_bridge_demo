@@ -14,9 +14,9 @@ The application relies entirely on user-provided credentials from the frontend:
 
 1.  **User Login**: The frontend includes a header bar where users **must** enter their Dynamics NAV credentials (`DOMAIN\User` and `Password`).
 2.  **Credential Proxying**: These credentials are sent via custom HTTP headers (`x-nav-user`, `x-nav-pass`) to the BFF for every request.
-3.  **NTLM/Negotiate Handshake**: The BFF performs a multi-step authentication handshake (Type 1, 2, and 3 messages) with the Dynamics NAV server to support both NTLM and Negotiate (SPNEGO) protocols.
+3.  **Robust NTLM/Negotiate Handshake**: The BFF performs a multi-step authentication handshake (GET -> Challenge -> POST) with the Dynamics NAV server to support both NTLM and Negotiate (SPNEGO) protocols. Connection persistence is maintained via a shared HTTP agent.
 4.  **Security**: No default credentials are stored in the backend, ensuring access control is managed by the Dynamics NAV server.
-5.  **Caching**: Server-side caching is implemented using `@nestjs/cache-manager` for master data (Customers, Categories). Caching is automatically bypassed when user-specific credentials are used.
+5.  **Caching**: Server-side caching is implemented using `@nestjs/cache-manager` for master data (Customers, Categories). Caching is automatically bypassed when user-specific credentials are used to ensure data privacy.
 
 ## Getting Started
 
@@ -44,9 +44,8 @@ The application relies entirely on user-provided credentials from the frontend:
 ### Addressing 401/400 Errors (Authentication)
 If you encounter authentication errors:
 1.  **Domain Format**: Ensure the username is `DOMAIN\User`.
-2.  **IIS/NAV Settings**: If the server is strictly enforced to Kerberos, Node.js may fail. Ensure **NTLM** is enabled as a provider under the Windows Authentication settings in IIS and the Dynamics NAV Tier.
-3.  **Negotiate Challenge**: The BFF supports both `Negotiate` and `NTLM` headers but relies on NTLM tokens for the handshake.
-4.  **Shared Connection**: The BFF uses a persistent HTTP agent to ensure the multi-step handshake occurs over the same TCP connection.
+2.  **IIS/NAV Settings**: Ensure **NTLM** is enabled as a provider under the Windows Authentication settings in IIS and the Dynamics NAV Tier if Kerberos (Negotiate) is not properly configured for your network.
+3.  **SOAPAction**: The BFF uses the raw `SOAPAction` string (e.g., `urn:microsoft-dynamics-schemas/page/item:ReadMultiple`).
 
 ### Enabling Debug Mode
 - **Backend Logging**: Set `LOG_LEVEL="log,error,warn,debug"` in `.env`.
@@ -55,6 +54,6 @@ If you encounter authentication errors:
 ## Features
 
 - **Items**: Create, Update, and View Item records.
-- **Purchase Orders**: Specialized dual-table view showing PO Headers (Master) and PO Lines (Detail) with Signal-based selection.
+- **Purchase Orders**: Specialized dual-table view showing PO Headers (Master) and PO Lines (Detail) with Signal-based selection. Supports creating new PO headers.
 - **Master Data**: Responsive tables for Customers and Item Categories with caching.
 - **Modern UI**: Clean, responsive layout built with Tailwind CSS and Angular Signals.
