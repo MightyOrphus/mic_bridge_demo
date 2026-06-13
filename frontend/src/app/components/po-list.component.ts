@@ -8,11 +8,15 @@ import { NavService } from '../services/nav.service';
   imports: [CommonModule, DecimalPipe],
   template: `
     <div class="space-y-6">
-      <!-- Master Table: PO Headers -->
       <div class="bg-white shadow rounded-lg overflow-hidden">
         <div class="px-6 py-4 border-b flex justify-between items-center bg-slate-50 border-slate-200">
           <h3 class="font-bold text-slate-800">Purchase Order Headers (Master)</h3>
-          <button (click)="load()" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">Refresh</button>
+          <button (click)="load()" [disabled]="loading()" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+             {{ loading() ? 'Loading...' : 'Refresh' }}
+          </button>
+        </div>
+        <div *ngIf="error()" class="p-4 bg-red-50 border-b border-red-100 text-red-700 text-sm">
+          <strong>Error:</strong> {{ error() }}
         </div>
         <div class="overflow-x-auto max-h-[400px]">
           <table class="min-w-full divide-y divide-slate-200 text-sm">
@@ -39,15 +43,17 @@ import { NavService } from '../services/nav.service';
                   </span>
                 </td>
               </tr>
-              <tr *ngIf="pos().length === 0">
+              <tr *ngIf="!loading() && pos().length === 0">
                 <td colspan="4" class="px-6 py-12 text-center text-slate-500 italic">No Purchase Orders found.</td>
+              </tr>
+              <tr *ngIf="loading()">
+                <td colspan="4" class="px-6 py-12 text-center text-slate-500">Fetching POs from Dynamics NAV...</td>
               </tr>
             </body>
           </table>
         </div>
       </div>
 
-      <!-- Detail Table: PO Lines -->
       <div *ngIf="selectedPO()" class="bg-white shadow rounded-lg overflow-hidden border-t-4 border-blue-500 animate-in fade-in slide-in-from-top-2 duration-300">
         <div class="px-6 py-4 border-b bg-slate-50 border-slate-200">
           <h3 class="font-bold text-slate-800">Lines for Order: <span class="text-blue-600">{{ selectedPO()?.No }}</span></h3>
@@ -71,9 +77,6 @@ import { NavService } from '../services/nav.service';
                 <td class="px-6 py-4 text-right text-slate-600">{{ line.Direct_Unit_Cost | number:'1.2-2' }}</td>
                 <td class="px-6 py-4 text-right font-bold text-blue-600">{{ line.Line_Amount | number:'1.2-2' }}</td>
               </tr>
-              <tr *ngIf="getLines().length === 0">
-                <td colspan="5" class="px-6 py-12 text-center text-slate-500 italic">No lines found for this order.</td>
-              </tr>
             </body>
           </table>
         </div>
@@ -85,16 +88,24 @@ export class POListComponent implements OnInit {
   private navService = inject(NavService);
   pos = signal<any[]>([]);
   selectedPO = signal<any>(null);
+  loading = signal(false);
+  error = signal<string | null>(null);
 
   ngOnInit() { this.load(); }
 
   load() {
+    this.loading.set(true);
+    this.error.set(null);
     this.navService.getPurchaseOrders(50).subscribe({
       next: (res) => {
         const list = res?.PurchaseOrder || [];
         this.pos.set(Array.isArray(list) ? list : [list]);
+        this.loading.set(false);
       },
-      error: (err) => console.error(err)
+      error: (err) => {
+        this.error.set(err.error?.message || err.message);
+        this.loading.set(false);
+      }
     });
   }
 
@@ -105,16 +116,12 @@ export class POListComponent implements OnInit {
   getLines() {
     const po = this.selectedPO();
     if (!po) return [];
-
-    // Dynamics NAV usually returns lines in a nested object depending on the Page structure
-    // We handle both nested and direct array cases
     let lines = [];
     if (po.PurchaseOrder_Lines) {
        lines = po.PurchaseOrder_Lines.PurchaseOrder_Lines || po.PurchaseOrder_Lines;
     } else if (po.Lines) {
        lines = po.Lines.PurchaseOrder_Lines || po.Lines;
     }
-
     return Array.isArray(lines) ? lines : (lines ? [lines] : []);
   }
 }
