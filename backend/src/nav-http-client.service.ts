@@ -11,7 +11,6 @@ import * as os from 'os';
 export class NavHttpClientService {
   private readonly logger = new Logger(NavHttpClientService.name);
 
-  // Connection persistence is mandatory for multi-step NTLM/Negotiate authentication
   private readonly httpAgent = new http.Agent({ keepAlive: true });
   private readonly httpsAgent = new https.Agent({ keepAlive: true, rejectUnauthorized: false });
 
@@ -38,7 +37,7 @@ export class NavHttpClientService {
     const axiosConfig = {
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
-      validateStatus: () => true, // Manually check status
+      validateStatus: () => true,
     };
 
     const commonHeaders = {
@@ -47,48 +46,65 @@ export class NavHttpClientService {
     };
 
     try {
-      // Step 1: Start with Type 1 Message (Negotiate)
-      const type1msg = ntlm.createType1Message(workstation, domain);
-
+      // 1. Initial request
       let response = await axios.post(url, xmlPayload, {
         ...axiosConfig,
-        headers: {
-          ...commonHeaders,
-          'Authorization': `Negotiate ${type1msg}`,
-        },
+        headers: { ...commonHeaders },
       });
 
-      this.logger.debug(`Auth Step 1 - Code: ${response.status}`);
-
       if (response.status === 401) {
-        const type2header = response.headers['www-authenticate'];
-        this.logger.debug(`Auth Step 2 Challenge: ${type2header}`);
+        const authHeader = response.headers['www-authenticate'] || '';
+        this.logger.debug(`Step 1 Challenge: ${authHeader}`);
 
-        if (!type2header) {
-          throw new UnauthorizedException('Server did not provide NTLM/Negotiate challenge');
+        const challenges = Array.isArray(authHeader) ? authHeader : authHeader.split(',').map((s: string) => s.trim());
+        const negotiate = challenges.find((s: string) => s.toLowerCase().startsWith('negotiate'));
+        const ntlmChallenge = challenges.find((s: string) => s.toLowerCase().startsWith('ntlm'));
+
+        if (!negotiate && !ntlmChallenge) {
+          throw new UnauthorizedException('Server does not support NTLM or Negotiate');
         }
 
-        // Handle both "Negotiate <token>" and "NTLM <token>"
-        const base64Challenge = type2header.includes(' ') ? type2header.split(' ')[1] : type2header;
-        const authType = type2header.startsWith('NTLM') ? 'NTLM' : 'Negotiate';
+        const authType = negotiate ? 'Negotiate' : 'NTLM';
+        const activeChallenge = negotiate || ntlmChallenge;
+        const challengeParts = activeChallenge!.split(' ');
 
-        const type2msg = ntlm.decodeType2Message(base64Challenge);
-        const type3msg = ntlm.createType3Message(type2msg, username, pass, workstation, domain);
+        let type2msg;
+        if (challengeParts.length > 1) {
+          // Server returned Type 2 challenge immediately!
+          this.logger.debug('Server returned Type 2 challenge in Step 1. Skipping Type 1 message.');
+          type2msg = ntlm.decodeType2Message(challengeParts[1]);
+        } else {
+          // Standard flow: Send Type 1 Message
+          const type1msg = ntlm.createType1Message(workstation, domain);
+          response = await axios.post(url, null, {
+            ...axiosConfig,
+            headers: { 'Authorization': `${authType} ${type1msg}` },
+          });
 
-        // Step 2: Final Authenticated Request with Type 3 Message
-        response = await axios.post(url, xmlPayload, {
-          ...axiosConfig,
-          headers: {
-            ...commonHeaders,
-            'Authorization': `${authType} ${type3msg}`,
-          },
-        });
+          if (response.status !== 401) {
+             this.logger.error(`Expected 401 in Step 2, got ${response.status}`);
+          } else {
+             const type2header = response.headers['www-authenticate'];
+             this.logger.debug(`Step 2 Challenge: ${type2header}`);
+             const base64Challenge = type2header.includes(' ') ? type2header.split(' ')[1] : type2header;
+             type2msg = ntlm.decodeType2Message(base64Challenge);
+          }
+        }
 
-        this.logger.debug(`Auth Step 3 - Code: ${response.status}`);
+        if (type2msg) {
+          const type3msg = ntlm.createType3Message(type2msg, username, pass, workstation, domain);
+          response = await axios.post(url, xmlPayload, {
+            ...axiosConfig,
+            headers: {
+              ...commonHeaders,
+              'Authorization': `${authType} ${type3msg}`,
+            },
+          });
+        }
       }
 
       if (response.status >= 400) {
-        this.logger.error(`NAV SOAP Error [${response.status}]: ${JSON.stringify(response.data)}`);
+        this.logger.error(`NAV Error [${response.status}]: ${JSON.stringify(response.data)}`);
         throw new InternalServerErrorException(`NAV Service Error: ${response.statusText} (${response.status})`);
       }
 
@@ -97,7 +113,7 @@ export class NavHttpClientService {
 
     } catch (error: any) {
       if (error instanceof InternalServerErrorException || error instanceof UnauthorizedException) throw error;
-      this.logger.error(`NAV Communication Failure: ${error.message}`);
+      this.logger.error(`NAV SOAP Error: ${error.message}`);
       throw new InternalServerErrorException(`NAV Connection Error: ${error.message}`);
     }
   }
