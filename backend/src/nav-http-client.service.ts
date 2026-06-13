@@ -76,9 +76,15 @@ export class NavHttpClientService {
         } else {
           // Standard flow: Send Type 1 Message
           const type1msg = ntlm.createType1Message(workstation, domain);
-          response = await axios.post(url, null, {
+          // ntlm-client prepends 'NTLM ' to the message, we need to extract the token if authType is Negotiate
+          const token1 = type1msg.startsWith('NTLM ') ? type1msg.substring(5) : type1msg;
+
+          response = await axios.post(url, xmlPayload, {
             ...axiosConfig,
-            headers: { 'Authorization': `${authType} ${type1msg}` },
+            headers: {
+              ...commonHeaders,
+              'Authorization': `${authType} ${token1}`,
+            },
           });
 
           if (response.status !== 401) {
@@ -93,11 +99,14 @@ export class NavHttpClientService {
 
         if (type2msg) {
           const type3msg = ntlm.createType3Message(type2msg, username, pass, workstation, domain);
+          // ntlm-client prepends 'NTLM ' to the message, we need to extract the token if authType is Negotiate
+          const token3 = type3msg.startsWith('NTLM ') ? type3msg.substring(5) : type3msg;
+
           response = await axios.post(url, xmlPayload, {
             ...axiosConfig,
             headers: {
               ...commonHeaders,
-              'Authorization': `${authType} ${type3msg}`,
+              'Authorization': `${authType} ${token3}`,
             },
           });
         }
