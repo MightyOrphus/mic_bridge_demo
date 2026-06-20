@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosResponse } from 'axios';
-import * as ntlm from 'ntlm-client';
+import { NtlmClient } from 'axios-ntlm';
 import * as xml2js from 'xml2js';
 import * as http from 'http';
 import * as https from 'https';
@@ -44,86 +44,24 @@ export class NavHttpClientService {
 
     this.logger.debug(`[NTLM Target] Domain: "${domain}" | Username: "${username}"`);
 
-    const workstation = os.hostname();
-    const axiosConfig = {
+    const client = NtlmClient({
+      username,
+      password: pass,
+      domain,
+      workstation: os.hostname(),
+    }, {
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
-      validateStatus: () => true,
-    };
-
-    const commonHeaders = {
-      'Content-Type': 'text/xml; charset=utf-8',
-      'SOAPAction': soapAction,
-    };
+    });
 
     try {
-      // Step 1: Send anonymous request to trigger 401 challenge
-      let response = await axios.post(url, xmlPayload, {
-        ...axiosConfig,
-        headers: { ...commonHeaders },
+      const response = await client.post(url, xmlPayload, {
+        headers: {
+          'Content-Type': 'text/xml; charset=utf-8',
+          'SOAPAction': soapAction,
+        },
+        validateStatus: () => true,
       });
-
-      if (response.status === 401) {
-        const authHeader1 = response.headers['www-authenticate'] || '';
-        this.logger.debug(`Step 1 WWW-Authenticate: ${authHeader1}`);
-
-        // FORCE NTLM AUTHENTICATION FLOW LIKE CURL
-        const authType = 'NTLM';
-
-        // Step 2: Send NTLM Type 1 Message
-        const type1msg = ntlm.createType1Message(workstation, domain);
-        const token1 = type1msg.startsWith('NTLM ') ? type1msg.substring(5) : type1msg;
-
-        response = await axios.post(url, xmlPayload, {
-          ...axiosConfig,
-          headers: {
-            ...commonHeaders,
-            'Authorization': `${authType} ${token1}`,
-          },
-        });
-
-        if (response.status !== 401) {
-          this.logger.error(`Expected 401 in Step 2, got ${response.status}`);
-        } else {
-          // Step 3: Parse Type 2 Challenge and Send Type 3 Message
-          const type2header = response.headers['www-authenticate'] || '';
-          this.logger.debug(`Step 2 WWW-Authenticate: ${type2header}`);
-
-          // Extract the actual NTLM/Negotiate token part safely
-          const challengeParts = (Array.isArray(type2header) ? type2header : type2header.split(',')).map((s: string) => s.trim());
-
-          // Find the challenge that actually contains a token (has a space)
-          let activeChallenge = challengeParts.find((s: string) => (s.startsWith('NTLM') || s.startsWith('Negotiate')) && s.includes(' '));
-
-          // Fallback to preferred scheme if no token found yet (some servers might not use spaces if token is empty, though unlikely for Type 2)
-          if (!activeChallenge) {
-             activeChallenge = challengeParts.find((s: string) => s.startsWith('NTLM')) || challengeParts.find((s: string) => s.startsWith('Negotiate')) || '';
-          }
-
-          const base64Challenge = activeChallenge.includes(' ') ? activeChallenge.split(' ')[1] : '';
-
-          if (!base64Challenge) {
-            this.logger.error(`Failed to extract base64 challenge. Active Challenge: "${activeChallenge}"`);
-            throw new UnauthorizedException('Could not extract NTLM base64 challenge from server');
-          }
-
-          const type2msg = ntlm.decodeType2Message(base64Challenge);
-          const type3msg = ntlm.createType3Message(type2msg, username, pass, workstation, domain);
-          const token3 = type3msg.startsWith('NTLM ') ? type3msg.substring(5) : type3msg;
-
-          this.logger.debug(`Step 3 Authorization: Sending forced NTLM Type 3 token`);
-
-          response = await axios.post(url, xmlPayload, {
-            ...axiosConfig,
-            headers: {
-              ...commonHeaders,
-              'Authorization': `${authType} ${token3}`,
-            },
-          });
-
-          this.logger.debug(`Step 3 Response Status: ${response.status}`);
-        }
-      }
 
       if (response.status >= 400) {
         this.logger.error(`NAV Error [${response.status}]: ${JSON.stringify(response.data)}`);

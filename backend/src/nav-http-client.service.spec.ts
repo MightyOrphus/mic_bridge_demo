@@ -2,10 +2,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NavHttpClientService } from './nav-http-client.service';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import * as ntlm from 'ntlm-client';
+import { NtlmClient } from 'axios-ntlm';
 
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
+
+jest.mock('axios-ntlm', () => ({
+  NtlmClient: jest.fn(),
+}));
 
 describe('NavHttpClientService', () => {
   let service: NavHttpClientService;
@@ -35,69 +39,42 @@ describe('NavHttpClientService', () => {
     jest.clearAllMocks();
   });
 
-  it('should include payload and headers in all steps of NTLM handshake', async () => {
+  it('should call axios-ntlm with correct credentials and agents', async () => {
     const serviceName = 'Item';
     const soapAction = 'urn:microsoft-dynamics-schemas/page/item:ReadMultiple';
     const xmlPayload = '<soapenv:Envelope>...</soapenv:Envelope>';
     const auth = { user: 'mic2\\mic075', pass: 'user@2023' };
 
-    // Step 1: Initial request -> 401 with Negotiate challenge
-    mockedAxios.post.mockResolvedValueOnce({
-      status: 401,
-      headers: { 'www-authenticate': 'Negotiate' },
-    } as any);
+    const mockedClient = {
+      post: jest.fn().mockResolvedValue({
+        status: 200,
+        data: '<Soap:Envelope><Soap:Body><ReadMultiple_Result><ReadMultiple_Result>Data</ReadMultiple_Result></ReadMultiple_Result></Soap:Body></Soap:Envelope>',
+      }),
+    };
 
-    // Step 2: Type 1 Message -> 401 with Type 2 Challenge
-    const type2Challenge = 'TlRMTVNTUAACAAAAAAAAACgAAAABggAAASNFZ4mrze8AAAAAAAAAAA==';
-    mockedAxios.post.mockResolvedValueOnce({
-      status: 401,
-      headers: { 'www-authenticate': `Negotiate ${type2Challenge}` },
-    } as any);
-
-    // Step 3: Type 3 Message -> 200 OK
-    mockedAxios.post.mockResolvedValueOnce({
-      status: 200,
-      data: '<Soap:Envelope><Soap:Body><ReadMultiple_Result><ReadMultiple_Result>Data</ReadMultiple_Result></ReadMultiple_Result></Soap:Body></Soap:Envelope>',
-    } as any);
+    (NtlmClient as jest.Mock).mockReturnValue(mockedClient);
 
     const result = await service.post(serviceName, soapAction, xmlPayload, auth);
 
-    expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+    expect(NtlmClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        username: 'mic075',
+        password: auth.pass,
+        domain: 'mic2',
+      }),
+      expect.objectContaining({
+        httpAgent: expect.any(Object),
+        httpsAgent: expect.any(Object),
+      })
+    );
 
-    // Verify Step 1
-    expect(mockedAxios.post).toHaveBeenNthCalledWith(1,
+    expect(mockedClient.post).toHaveBeenCalledWith(
       expect.stringContaining('/Page/Item'),
       xmlPayload,
       expect.objectContaining({
         headers: expect.objectContaining({
           'Content-Type': 'text/xml; charset=utf-8',
           'SOAPAction': soapAction,
-        }),
-      })
-    );
-
-    // Verify Step 2 (The fix!)
-    expect(mockedAxios.post).toHaveBeenNthCalledWith(2,
-      expect.stringContaining('/Page/Item'),
-      xmlPayload, // Should NOT be null
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          'Content-Type': 'text/xml; charset=utf-8',
-          'SOAPAction': soapAction,
-          'Authorization': expect.stringMatching(/^NTLM TlRMTVNTUAAB/),
-        }),
-      })
-    );
-
-    // Verify Step 3
-    expect(mockedAxios.post).toHaveBeenNthCalledWith(3,
-      expect.stringContaining('/Page/Item'),
-      xmlPayload,
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          'Content-Type': 'text/xml; charset=utf-8',
-          'SOAPAction': soapAction,
-          'Authorization': expect.stringMatching(/^NTLM TlRMTVNTUAAD/),
         }),
       })
     );
