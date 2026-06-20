@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NavHttpClientService } from './nav-http-client.service';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import * as ntlm from 'ntlm-client';
 
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -76,15 +75,15 @@ describe('NavHttpClientService', () => {
       })
     );
 
-    // Verify Step 2 (The fix!)
+    // Verify Step 2
     expect(mockedAxios.post).toHaveBeenNthCalledWith(2,
       expect.stringContaining('/Page/Item'),
-      xmlPayload, // Should NOT be null
+      xmlPayload,
       expect.objectContaining({
         headers: expect.objectContaining({
           'Content-Type': 'text/xml; charset=utf-8',
           'SOAPAction': soapAction,
-          'Authorization': expect.stringMatching(/^Negotiate TlRMTVNTUAAB/),
+          'Authorization': expect.stringMatching(/^NTLM TlRMTVNTUAAB/),
         }),
       })
     );
@@ -97,7 +96,7 @@ describe('NavHttpClientService', () => {
         headers: expect.objectContaining({
           'Content-Type': 'text/xml; charset=utf-8',
           'SOAPAction': soapAction,
-          'Authorization': expect.stringMatching(/^Negotiate TlRMTVNTUAAD/),
+          'Authorization': expect.stringMatching(/^NTLM TlRMTVNTUAAD/),
         }),
       })
     );
