@@ -1,14 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NavHttpClientService } from './nav-http-client.service';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
-import { NtlmClient } from 'axios-ntlm';
+import * as httpntlm from 'httpntlm';
 
-jest.mock('axios');
-const mockedAxios = axios as jest.Mocked<typeof axios>;
-
-jest.mock('axios-ntlm', () => ({
-  NtlmClient: jest.fn(),
+jest.mock('httpntlm', () => ({
+  post: jest.fn(),
 }));
 
 describe('NavHttpClientService', () => {
@@ -39,44 +35,34 @@ describe('NavHttpClientService', () => {
     jest.clearAllMocks();
   });
 
-  it('should call axios-ntlm with correct credentials and agents', async () => {
+  it('should call httpntlm.post with correct arguments', async () => {
     const serviceName = 'Item';
     const soapAction = 'urn:microsoft-dynamics-schemas/page/item:ReadMultiple';
     const xmlPayload = '<soapenv:Envelope>...</soapenv:Envelope>';
     const auth = { user: 'mic2\\mic075', pass: 'user@2023' };
 
-    const mockedClient = {
-      post: jest.fn().mockResolvedValue({
-        status: 200,
-        data: '<Soap:Envelope><Soap:Body><ReadMultiple_Result><ReadMultiple_Result>Data</ReadMultiple_Result></ReadMultiple_Result></Soap:Body></Soap:Envelope>',
-      }),
-    };
-
-    (NtlmClient as jest.Mock).mockReturnValue(mockedClient);
+    (httpntlm.post as jest.Mock).mockImplementation((options, callback) => {
+      callback(null, {
+        statusCode: 200,
+        body: '<Soap:Envelope><Soap:Body><ReadMultiple_Result><ReadMultiple_Result>Data</ReadMultiple_Result></ReadMultiple_Result></Soap:Body></Soap:Envelope>',
+      });
+    });
 
     const result = await service.post(serviceName, soapAction, xmlPayload, auth);
 
-    expect(NtlmClient).toHaveBeenCalledWith(
+    expect(httpntlm.post).toHaveBeenCalledWith(
       expect.objectContaining({
+        url: expect.stringContaining('/Page/Item'),
         username: 'mic075',
         password: auth.pass,
         domain: 'mic2',
-      }),
-      expect.objectContaining({
-        httpAgent: expect.any(Object),
-        httpsAgent: expect.any(Object),
-      })
-    );
-
-    expect(mockedClient.post).toHaveBeenCalledWith(
-      expect.stringContaining('/Page/Item'),
-      xmlPayload,
-      expect.objectContaining({
+        body: xmlPayload,
         headers: expect.objectContaining({
           'Content-Type': 'text/xml; charset=utf-8',
           'SOAPAction': soapAction,
         }),
-      })
+      }),
+      expect.any(Function)
     );
 
     expect(result).toBeDefined();

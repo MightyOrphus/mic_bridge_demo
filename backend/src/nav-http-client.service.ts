@@ -1,7 +1,6 @@
 import { Injectable, InternalServerErrorException, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios, { AxiosResponse } from 'axios';
-import { NtlmClient } from 'axios-ntlm';
+import * as httpntlm from 'httpntlm';
 import * as xml2js from 'xml2js';
 import * as http from 'http';
 import * as https from 'https';
@@ -44,31 +43,36 @@ export class NavHttpClientService {
 
     this.logger.debug(`[NTLM Target] Domain: "${domain}" | Username: "${username}"`);
 
-    const client = NtlmClient({
+    const options = {
+      url,
       username,
       password: pass,
       domain,
       workstation: os.hostname(),
-    }, {
-      httpAgent: this.httpAgent,
-      httpsAgent: this.httpsAgent,
-    });
+      method: 'POST',
+      body: xmlPayload,
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': soapAction,
+      },
+      agent: url.startsWith('https') ? this.httpsAgent : this.httpAgent,
+      rejectUnauthorized: false,
+    };
 
     try {
-      const response = await client.post(url, xmlPayload, {
-        headers: {
-          'Content-Type': 'text/xml; charset=utf-8',
-          'SOAPAction': soapAction,
-        },
-        validateStatus: () => true,
+      const response: any = await new Promise((resolve, reject) => {
+        httpntlm.post(options, (err, res) => {
+          if (err) return reject(err);
+          resolve(res);
+        });
       });
 
-      if (response.status >= 400) {
-        this.logger.error(`NAV Error [${response.status}]: ${JSON.stringify(response.data)}`);
-        throw new InternalServerErrorException(`NAV Service Error: ${response.statusText} (${response.status})`);
+      if (response.statusCode >= 400) {
+        this.logger.error(`NAV Error [${response.statusCode}]: ${response.body}`);
+        throw new InternalServerErrorException(`NAV Service Error: ${response.statusMessage} (${response.statusCode})`);
       }
 
-      const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false, ignoreAttrs: true });
+      const parsed = await xml2js.parseStringPromise(response.body, { explicitArray: false, ignoreAttrs: true });
       return this.extractResponseBody(parsed);
 
     } catch (error: any) {
