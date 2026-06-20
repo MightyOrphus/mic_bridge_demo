@@ -61,7 +61,7 @@ export class NavHttpClientService {
 
     try {
       const response: any = await new Promise((resolve, reject) => {
-        httpntlm.post(options, (err, res) => {
+        httpntlm.post(options, (err: any, res: any) => {
           if (err) return reject(err);
           resolve(res);
         });
