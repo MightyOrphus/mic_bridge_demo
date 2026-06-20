@@ -67,6 +67,7 @@ export class NavHttpClientService {
         const authHeader1 = response.headers['www-authenticate'] || '';
         this.logger.debug(`Step 1 WWW-Authenticate: ${authHeader1}`);
 
+        const authType = 'NTLM';
         const challenges = (Array.isArray(authHeader1) ? authHeader1 : authHeader1.split(',')).map((s: string) => s.trim());
         const negotiate = challenges.find((s: string) => s.toLowerCase().startsWith('negotiate'));
         const ntlmChallenge = challenges.find((s: string) => s.toLowerCase().startsWith('ntlm'));
@@ -75,7 +76,6 @@ export class NavHttpClientService {
           throw new UnauthorizedException('Server does not support NTLM or Negotiate');
         }
 
-        const authType = negotiate ? 'Negotiate' : 'NTLM';
         const activeChallenge1 = negotiate || ntlmChallenge;
         const challengeParts1 = activeChallenge1!.split(' ');
 
